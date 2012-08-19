@@ -27,6 +27,8 @@
 
 
 import getpass
+import glob
+import os
 import requests
 
 def login(email, password):
@@ -72,6 +74,7 @@ def upload_gpx(token, filename, activity='ride'):
     return r.json['id'], r.json['upload_id']
 
 if __name__ == '__main__':
+    # Log in
     print('Enter strava login...')
     email = raw_input('Email: ')
     password = getpass.getpass()
@@ -81,13 +84,40 @@ if __name__ == '__main__':
         print('Login failed. Exiting...')
     print('Login successful.\n')
     
-    while True:
-        ride_id = raw_input('Enter ride id: ')
-        try:
-            ride = get_ride_data(ride_id)
-        except ValueError as e:
-            print(e.message)
+    # Upload
+    garmin_path = '/media/GARMIN/Garmin/GPX'
+    if os.path.isdir(garmin_path):
+        track_num = 0
+        print('Looking for tracks...')
+        filenames = glob.glob(os.path.join(garmin_path,'Track_*.gpx'))
+        if filenames:
+            for i, filename in enumerate(filenames ,1):
+                print('{}) {}'.format(i, os.path.basename(filename).replace('Track_', '')))
+            track_num = int(raw_input('Enter number to upload ' \
+                                      '(0 to skip upload): '))
+            if track_num == 0:
+                print('Skipping upload.') 
+            elif track_num > 0 and track_num <= len(filenames):
+                upload_gpx(token, filenames[track_num - 1])
+                print("Upload successful. Visit http://app.strava.com/athlete/training to edit.")
+            else:
+                print('Invalid response. Skipping upload.')
         else:
-            for key, val in ride.iteritems():
-                print('{!s}: {}'.format(key, val))
+            print('No tracks found.\n')
+
+    # Query rides
+    exit_flag = False
+    while exit_flag is False:
+        ride_id = raw_input('Enter ride id to query (0 to exit): ')
+        if int(ride_id) == 0:
+            exit_flag = True
+            print('Exiting...')
+        else:
+            try:
+                ride = get_ride_data(ride_id)
+            except ValueError as e:
+                print(e.message)
+            else:
+                for key, val in ride.iteritems():
+                    print('{!s}: {}'.format(key, val))
 
