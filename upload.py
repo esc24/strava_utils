@@ -25,11 +25,64 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+# TODO - units on output, order gpx by creation date, .strava file
 
 import getpass
 import glob
+import hashlib
 import os
+import random
+
+import gnomekeyring
+import readline
 import requests
+
+def get_credentials():
+
+    try:
+        keyrings = gnomekeyring.find_items_sync(gnomekeyring.ITEM_GENERIC_SECRET, 
+                                                {'signon_realm': 'https://www.strava.com/'})
+    except gnomekeyring.NoMatchError:
+        # no stored cred
+        email = None
+        password = None
+    else:
+        if len(keyrings) == 1:
+            email = keyrings[0].attributes['username_value']
+            password = keyrings[0].secret
+            resp = raw_input('Are you {}? (Y/n): '.format(email))
+            if resp != '' and resp.lower() != 'y':
+                email = None
+                password = None
+        else:
+            print('Multiple logins found...')
+            for i, keyring in enumerate(keyrings, 1):
+                print('{}) {}'.format(i, keyring.attributes['username_value']))
+            id_num = int(raw_input('Enter number of account' \
+                                      '(0 to enter alternative): '))
+            if id_num > 0 and id_num <= len(keyrings):
+                email = keyrings[id_num - 1].attributes['username_value']
+                password = keyrings[id_num -1].secret
+            elif id_num != 0:
+                print('Invalid response.')
+
+    # Fallback is to ask
+    if email is None: 
+        print('Enter strava login...')
+        email = raw_input('Email: ')
+        password = getpass.getpass()
+
+    return email, password
+
+def encrypy_password(raw_password):
+    salt = hashlib.sha384(str(random.random())).hexdigest()
+    hsh = hashlib.sha512('{}{}'.format(salt, raw_password)).hexdigest()
+    enc_password = '{}${}'.format(salt, hsh)
+    return enc_password
+
+def check_password(raw_password, enc_password):
+    salt, hsh = enc_password.split('$')
+    return hsh == hashlib.sha512('{}{}'.format(salt, raw_password)).hexdigest()
 
 def login(email, password):
     # Authentication
@@ -75,9 +128,7 @@ def upload_gpx(token, filename, activity='ride'):
 
 if __name__ == '__main__':
     # Log in
-    print('Enter strava login...')
-    email = raw_input('Email: ')
-    password = getpass.getpass()
+    email, password = get_credentials()
     try:
         token, athlete_id = login(email, password)
     except RuntimeError:
@@ -90,6 +141,8 @@ if __name__ == '__main__':
         track_num = 0
         print('Looking for tracks...')
         filenames = glob.glob(os.path.join(garmin_path,'Track_*.gpx'))
+        # Sort by modification time
+        filenames.sort(key=lambda f: os.path.getmtime(f))
         if filenames:
             for i, filename in enumerate(filenames ,1):
                 print('{}) {}'.format(i, os.path.basename(filename).replace('Track_', '')))
