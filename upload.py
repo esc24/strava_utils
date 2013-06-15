@@ -32,13 +32,13 @@ import glob
 import hashlib
 import os
 import random
+import readline
+import subprocess
 
 import gnomekeyring
-import readline
 import requests
 
 def get_credentials():
-
     try:
         keyrings = gnomekeyring.find_items_sync(gnomekeyring.ITEM_GENERIC_SECRET, 
                                                 {'signon_realm': 'https://www.strava.com/'})
@@ -91,7 +91,7 @@ def login(email, password):
     if not r.ok:
         raise ValueError('Authentication failed ({}): {}'.format(r.status_code, r.text))
 
-    return r.json['token'], r.json['athlete']['id']
+    return r.json()['token'], r.json()['athlete']['id']
 
 def get_athlete_data(token):
     # Get athlete info
@@ -100,7 +100,7 @@ def get_athlete_data(token):
     if not r.ok:
         raise ValueError('Operation failed ({}): {}'.format(r.status_code, r.text))
 
-    return r.json
+    return r.json()
 
 def get_ride_data(ride_id):
     # Get ride info
@@ -108,7 +108,7 @@ def get_ride_data(ride_id):
     if not r.ok:
         raise ValueError('Operation failed ({}): {}'.format(r.status_code, r.text))
 
-    return r.json['ride']
+    return r.json()['ride']
 
 def upload_gpx(token, filename, activity='ride'):
     if activity not in ['ride', 'run']:
@@ -124,7 +124,7 @@ def upload_gpx(token, filename, activity='ride'):
     if not r.ok:
         raise ValueError('Operation failed ({}): {}'.format(r.status_code, r.text))
 
-    return r.json['id'], r.json['upload_id']
+    return r.json()['id'], r.json()['upload_id']
 
 if __name__ == '__main__':
     # Log in
@@ -136,10 +136,11 @@ if __name__ == '__main__':
     print('Login successful.\n')
     
     # Upload
-    garmin_path = '/media/GARMIN/Garmin/GPX'
+    #garmin_path = '/media/GARMIN/Garmin/GPX'
+    garmin_path = '/media/esc24/GARMIN/Garmin/GPX'
     if os.path.isdir(garmin_path):
         track_num = 0
-        print('Looking for tracks...')
+        print('Looking for tracks from Dakota...')
         filenames = glob.glob(os.path.join(garmin_path,'Track_*.gpx'))
         # Sort by modification time
         filenames.sort(key=lambda f: os.path.getmtime(f))
@@ -156,6 +157,25 @@ if __name__ == '__main__':
             else:
                 print('Invalid response. Skipping upload.')
         else:
+            print('No tracks found.\n')
+    else:
+        # Attempt to process Forerunner logs.
+        print('Looking for tracks from Forerunner...')
+        output = subprocess.check_output(('garmin_save_runs'))
+        files_found = False
+        for line in output.splitlines():
+            if line.startswith('Wrote:'):
+                files_found = True
+                _, gmn_path = line.split()
+                gpx_path = os.path.splitext(gmn_path)[0] + '.gpx'
+                gpx = subprocess.check_output(('garmin_gpx', gmn_path))
+                with open(gpx_path, 'w') as gpx_file:
+                    gpx_file.write(gpx)
+                resp = raw_input('Upload {!r}? (Y/n)'.format(gpx_path))
+                if resp.lower() == 'y':
+                    upload_gpx(token, gpx_path)
+                print("Upload successful. Visit http://app.strava.com/athlete/training to edit.")
+        if not files_found:
             print('No tracks found.\n')
 
     # Query rides
